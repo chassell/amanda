@@ -1,0 +1,115 @@
+Author: Nathan Stratton Treadway <nathanst@ontko.com>
+Description: Fix the update of internal database when DLE is very small
+
+Okay, I believe I have tracked down this "info on small DLEs not saved"
+bug...
+
+
+Summary:
+
+The short-ish summary is that in Amanda 3.4 and 3.5, any dump which ends
+but being shorter than 1024 bytes long (after compression) is treated as
+not having happened at all, as far as Amanda's recording of "info"
+statistics goes.
+
+This is most significant for full dumps (i.e. of very small partitions),
+because it causes Amanda to think that DLE has never been dumped (or,
+that the last time it was dumped was on the final run made using Amanda
+3.3 or older), and thus it schedules that DLE for a full dump on every
+run.
+
+However, the bug actually also affects incremental dumps (as we
+discussed in the above-quoted message) -- so DLEs that don't change much
+on a particular day and thus end up with very tiny incrementals end up
+recording those dumps as having taken place on 1969/12/31 rather than
+the day they actually occurred.
+
+
+Neither of the above situations is "fatal" as far as preventing Amanda
+from actually backup up your data, but for people (such as Gene) who are
+effected, a workaround workaround is simply to make sure that the dump
+on a particular day is at least 1024 bytes.
+
+For full dumps, you can do this just by creating a "dummy" file on the
+otherwise-very-empty partition in question, using data that's already
+compressed so that the dump file is still big enough after Amanda
+compresses it.  (In my tests, I just used the bytes off the front of the
+amanda_3.4.2.orig.tar.gz file I happened to have sitting around.)
+
+(For incrementals the trick is to make sure there is enough changing on
+the partition that the incremental dump is over the cutoff size; the
+best way to do that will depend on what data is on that partition, etc.)
+
+
+
+Internal details and history:
+
+The bug happens because the messages that the chunker and driver
+processes use to communicate with each other specify the size of the
+files transferred in integral units of "kb" (=1024 bytes), and thus the
+size given for very small files is "0" -- but the code in the driver
+that handles updating the info database has a specific check for
+zero-length dumps and refuses to update the database in that case.
+(This check is found in driverio.c:update_info_dumper() .)
+
+It appears that the bug has existed since Amanda 3.4, when the old
+chunker.c version of the chunker program was replaced with a new Perl
+version.
+
+Both server-src/chunker.c as found in Amanda 3.3 and server-src/dumper.c
+as it exists in 3.5 take special care to round "kb" value passed for
+files which are short-but-not-empty files up to "1" -- but that logic
+was not implemented in the Perl chunker code when it was created..
+
+(Interestingly, if I am reading the old chunker.c code correctly, it
+used to round up not just very-small-but-not-empty files to 1 kb, but
+actually rounded the kb figure up to count any trailing partial
+kilobytes at the end of the file... while the new program seems to just
+ignore those trailing partial kilobytes.  Presumably this difference
+simply doesn't matter -- except for the when the size is rounded down to
+zero.)
+
+
+Proposed patch:
+
+This is where having an actual Amanda developer would be very handy...
+but given that planner.c and old-chunker.c both have special handling
+for small-but-not-empty files, I figured that adding a similar check to
+the new Chunker implementation is probably the best fix for this
+situation, and that hopefully doing so would be safe from unwanted
+side-effects....
+
+So, I edited the perl/Amanda/Chunker/Controller.pm to implement such a
+check, as shown in the attached patch.  I've been running with this
+patch in place for a couple days now, and so far it seems to have
+resolved the issue for me....
+
+
+                                                        Nathan
+
+
+Index: amanda.git/perl/Amanda/Chunker/Controller.pm
+===================================================================
+--- amanda.git.orig/perl/Amanda/Chunker/Controller.pm	2018-07-22 13:42:39.643683364 +0100
++++ amanda.git/perl/Amanda/Chunker/Controller.pm	2018-11-11 14:01:56.434837582 +0000
+@@ -470,7 +470,19 @@ sub result_cb {
+ 
+     if ($msgtype eq Amanda::Chunker::Protocol::DONE ||
+ 	$msgtype eq Amanda::Chunker::Protocol::PARTIAL) {
+-	$msg_params{'size'} = ($params{'data_size'}+0) / 1024;
++	# the message 'size' parameter is in integer kb, but for
++	# small-but-not-empty files round it up to 1 (since
++	# the driver process assumes a zero value indicates the dump was
++	# invalid).
++	my $data_size = ($params{'data_size'}+0);
++	if ($data_size > 0 and $data_size < 1024)  {
++	    $msg_params{'size'} = 1;
++	    # also update the "stats" string generated earlier in this 
++	    # function, to match the rounded-up size.
++	    $stats = make_chunker_stats(1024, $params{'total_duration'});
++	} else {
++	    $msg_params{'size'} = $data_size / 1024;
++	}
+ 	$msg_params{'server_crc'} = $self->{'server_crc'};
+ 	$msg_params{'stats'} = $stats;
+     }

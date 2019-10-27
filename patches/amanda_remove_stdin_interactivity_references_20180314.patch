@@ -1,0 +1,28 @@
+diff --git a/perl/Amanda/Interactivity.pm b/perl/Amanda/Interactivity.pm
+index 3a94a90..17b21f6 100644
+--- a/perl/Amanda/Interactivity.pm
++++ b/perl/Amanda/Interactivity.pm
+@@ -28,7 +28,7 @@ Amanda::Interactivity -- Parent class for user interactivity m
+odules
+
+     use Amanda::Interactivity;
+
+-    my $inter = Amanda::Interactivity->new(name => 'stdin');
++    my $inter = Amanda::Interactivity->new(name => 'tty');
+     $inter->user_request(
+        message => "Insert Volume labelled 'MY_LABEL-001' in changer DLT",
+        label => 'MY_LABEL-001',
+diff --git a/server-src/amtape.pl b/server-src/amtape.pl
+index 3b8bee8..f59be33 100644
+--- a/server-src/amtape.pl
++++ b/server-src/amtape.pl
+@@ -495,7 +495,7 @@ sub {
+            }
+        };
+
+-       $interactivity = Amanda::Interactivity->new(name => 'stdin');
++       $interactivity = Amanda::Interactivity->new(name => 'tty');
+        ($storage, $chg) = load_changer($finished_cb) or return;
+        $scan = Amanda::Recovery::Scan->new(chg => $chg,
+                                            interactivity => $interactivity);
+

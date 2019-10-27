@@ -1,0 +1,13 @@
+Index: amanda-3.5.1~bpo9/common-src/protocol.c
+===================================================================
+--- amanda-3.5.1~bpo9.orig/common-src/protocol.c	2018-02-27 19:04:41.321900162 +0000
++++ amanda-3.5.1~bpo9/common-src/protocol.c	2018-02-27 19:06:35.717965349 +0000
+@@ -400,6 +400,8 @@ protocol_check(void)
+ {
+ 
+     /* arg == 1 means don't block */
++    /* doing it two times allow to send the REQ packet immediately */
++    event_loop(1);
+     event_loop(1);
+ }
+ 
